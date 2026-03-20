@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateSudoku, type Board } from './utils/sudokuLogic';
 
 interface SelectedCell {
@@ -19,6 +19,7 @@ function App() {
   const [userBoard, setUserBoard] = useState<Board>([]);
   const [solution, setSolution] = useState<Board>([]);
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
+  const initialized = useRef(false);
   const [mistakes, setMistakes] = useState(0);
   const [timer, setTimer] = useState(0);
   const [isGameActive, setIsGameActive] = useState(false);
@@ -31,15 +32,14 @@ function App() {
     Array(9).fill(null).map(() => Array(9).fill(null).map(() => []))
   );
   const [isMemoMode, setIsMemoMode] = useState(false);
-  const [bestTimes, setBestTimes] = useState<BestTimes>({ easy: null, medium: null, hard: null });
-
-  // Load High Scores
-  useEffect(() => {
+  const [bestTimes, setBestTimes] = useState<BestTimes>(() => {
     const saved = localStorage.getItem('sudoku-best-times');
-    if (saved) {
-      setBestTimes(JSON.parse(saved));
+    try {
+      return saved ? JSON.parse(saved) : { easy: null, medium: null, hard: null };
+    } catch {
+      return { easy: null, medium: null, hard: null };
     }
-  }, []);
+  });
 
   // Initialize game
   const startNewGame = useCallback((diff: Difficulty = 'medium', force = false) => {
@@ -47,10 +47,9 @@ function App() {
       if (!confirm('Start a new game? Your current progress will be lost.')) return;
     }
 
-    setDifficulty(diff);
-    setIsLoading(true);
-    
     setTimeout(() => {
+      setDifficulty(diff);
+      setIsLoading(true);
       try {
         const { initial, solution } = generateSudoku(diff);
         setInitialBoard(initial.map(row => [...row]));
@@ -71,8 +70,11 @@ function App() {
   }, [isGameActive, userBoard, initialBoard]);
 
   useEffect(() => {
-    startNewGame('medium', true);
-  }, []); // Only on mount
+    if (!initialized.current) {
+      startNewGame('medium', true);
+      initialized.current = true;
+    }
+  }, [startNewGame]); // Only on mount
 
   // Timer logic
   useEffect(() => {
@@ -158,14 +160,14 @@ function App() {
     }
   }, [selectedCell, userBoard, initialBoard, solution, isGameActive, mistakes, isMemoMode, memos, bestTimes, difficulty, timer]);
 
-  const undo = () => {
+  const undo = useCallback(() => {
     if (history.length === 0 || !isGameActive) return;
     const previousState = history[history.length - 1];
     setUserBoard(previousState);
     setHistory(prev => prev.slice(0, -1));
-  };
+  }, [history, isGameActive]);
 
-  const getHint = () => {
+  const getHint = useCallback(() => {
     if (!isGameActive) return;
     
     // Find all empty cells
@@ -190,8 +192,8 @@ function App() {
     
     setUserBoard(userBoard.map((r, ri) => ri === row ? r.map((c, ci) => ci === col ? num : c) : [...r]));
     // Clear memos for target
-    setMemos(memos.map((r, ri) => r.map((c, ci) => (ri === row && ci === col) ? [] : c)));
-  };
+    setMemos(prev => prev.map((r, ri) => r.map((c, ci) => (ri === row && ci === col) ? [] : c)));
+  }, [isGameActive, userBoard, selectedCell, solution]);
 
   // Keyboard support
   useEffect(() => {
@@ -216,7 +218,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCell, isGameActive, handleNumberInput]);
+  }, [selectedCell, isGameActive, handleNumberInput, undo]);
 
   const getCellClassName = (row: number, col: number) => {
     const isSelected = selectedCell?.row === row && selectedCell?.col === col;
@@ -232,21 +234,22 @@ function App() {
 
     let base = "w-10 h-10 sm:w-14 sm:h-14 flex items-center justify-center text-2xl transition-all duration-150 cursor-pointer relative ";
     
-    if (col < 8) base += (col + 1) % 3 === 0 ? "border-r-4 border-slate-900 " : "border-r border-slate-200 ";
-    if (row < 8) base += (row + 1) % 3 === 0 ? "border-b-4 border-slate-900 " : "border-b border-slate-200 ";
+    // Borders
+    if (col < 8) base += (col + 1) % 3 === 0 ? "border-r-2 border-white/20 " : "border-r border-white/10 ";
+    if (row < 8) base += (row + 1) % 3 === 0 ? "border-b-2 border-white/20 " : "border-b border-white/10 ";
 
     if (isSelected) {
-      base += "bg-blue-500 text-white z-10 scale-105 shadow-md ";
+      base += "bg-blue-500/80 text-white z-10 scale-105 shadow-[0_0_20px_rgba(59,130,246,0.6)] ring-2 ring-white/50 ";
     } else if (isSameValue && userBoard[row][col] !== null) {
-      base += "bg-blue-200 ";
+      base += "bg-blue-400/30 ";
     } else if (isSameRow || isSameCol || isSameBlock) {
-      base += "bg-blue-50 ";
+      base += "bg-white/5 ";
     } else {
-      base += "bg-white hover:bg-slate-50 ";
+      base += "bg-slate-900/40 hover:bg-white/10 ";
     }
 
     if (!isSelected) {
-      base += isInitial ? "text-slate-900 font-bold " : "text-blue-600 font-medium ";
+      base += isInitial ? "text-white font-black " : "text-cyan-400 font-bold ";
     }
 
     return base;
@@ -264,36 +267,36 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center py-6 px-4 font-sans select-none overflow-x-hidden">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-800 flex flex-col items-center pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] px-4 font-sans select-none overflow-x-hidden text-white">
       {/* Header */}
       <div className="w-full max-w-md flex flex-col gap-4 mb-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic">Sudoku</h1>
+          <h1 className="text-3xl font-black text-white tracking-tighter uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Sudoku</h1>
           <div className="flex gap-2 items-center">
-             <div className="bg-white px-3 py-1 rounded-lg shadow-sm border border-slate-200 text-xs font-bold text-slate-500 uppercase">
-                Best: <span className="text-slate-900 font-black">{formatTime(bestTimes[difficulty])}</span>
+             <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-lg shadow-sm border border-white/20 text-xs font-bold text-white/70 uppercase">
+                Best: <span className="text-white font-black">{formatTime(bestTimes[difficulty])}</span>
              </div>
-             <div className="bg-slate-900 text-white px-3 py-1 rounded-lg shadow-sm text-sm font-mono font-bold w-16 text-center">
+             <div className="bg-white text-slate-900 px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.4)] text-sm font-mono font-bold w-16 text-center">
                 {formatTime(timer)}
              </div>
           </div>
         </div>
         
-        <div className="flex justify-between items-center bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex justify-between items-center bg-white/10 backdrop-blur-md p-2 rounded-xl shadow-sm border border-white/20">
            <div className="flex items-center gap-2 ml-2">
-             <div className={`w-2 h-2 rounded-full ${difficulty === 'easy' ? 'bg-green-500' : difficulty === 'medium' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-             <span className="text-xs font-black uppercase text-slate-600 tracking-widest">{difficulty}</span>
+             <div className={`w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor] ${difficulty === 'easy' ? 'bg-green-400 text-green-400' : difficulty === 'medium' ? 'bg-yellow-400 text-yellow-400' : 'bg-red-400 text-red-400'}`}></div>
+             <span className="text-xs font-black uppercase text-white/80 tracking-widest">{difficulty}</span>
            </div>
            <div className="flex gap-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Mistakes</span>
-              <span className={`text-sm font-black ${mistakes > 0 ? 'text-red-500' : 'text-slate-900'}`}>{mistakes}/3</span>
+              <span className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Mistakes</span>
+              <span className={`text-sm font-black ${mistakes > 0 ? 'text-red-400' : 'text-white'}`}>{mistakes}/3</span>
            </div>
         </div>
       </div>
 
       {/* Grid */}
-      <div className="bg-white rounded-lg shadow-2xl border-4 border-slate-900 mb-6 overflow-hidden transform transition-all duration-300 ring-4 ring-slate-900/10">
-        <div className="grid grid-cols-9 bg-white">
+      <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl shadow-2xl border-2 border-white/20 mb-6 overflow-hidden transform transition-all duration-300 ring-8 ring-white/5">
+        <div className="grid grid-cols-9 bg-transparent">
           {userBoard.map((row, ri) => (
             row.map((cell, ci) => (
               <div
@@ -306,7 +309,7 @@ function App() {
                 ) : (
                   <div className="grid grid-cols-3 grid-rows-3 w-full h-full p-0.5 pointer-events-none">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
-                      <div key={n} className="flex items-center justify-center text-[8px] sm:text-[10px] leading-none text-slate-400 font-bold">
+                      <div key={n} className="flex items-center justify-center text-[8px] sm:text-[10px] leading-none text-white/30 font-bold">
                         {memos[ri][ci].includes(n) ? n : ''}
                       </div>
                     ))}
@@ -324,7 +327,7 @@ function App() {
           <button 
             onClick={undo}
             disabled={history.length === 0}
-            className="flex flex-col items-center justify-center p-3 bg-white rounded-xl shadow-sm border-2 border-slate-100 text-slate-600 hover:border-blue-500 hover:text-blue-500 disabled:opacity-30 transition-all active:scale-95"
+            className="flex flex-col items-center justify-center p-3 bg-white/5 backdrop-blur-md rounded-xl shadow-sm border-2 border-white/10 text-white/80 hover:bg-white/20 hover:border-white/30 disabled:opacity-20 transition-all active:scale-95"
           >
             <span className="text-xs font-black uppercase mb-1">Undo</span>
             <span className="text-[10px] opacity-70">({history.length})</span>
@@ -332,7 +335,7 @@ function App() {
           
           <button 
             onClick={() => setIsMemoMode(!isMemoMode)}
-            className={`flex flex-col items-center justify-center p-3 rounded-xl shadow-sm border-2 transition-all active:scale-95 ${isMemoMode ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-100 text-slate-600 hover:border-blue-500 hover:text-blue-500'}`}
+            className={`flex flex-col items-center justify-center p-3 rounded-xl shadow-md border-2 transition-all active:scale-95 ${isMemoMode ? 'bg-white text-slate-900 border-white shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 backdrop-blur-md border-white/10 text-white/80 hover:bg-white/20 hover:border-white/30'}`}
           >
             <span className="text-xs font-black uppercase mb-1">Notes</span>
             <span className="text-[10px] uppercase font-bold">{isMemoMode ? 'On' : 'Off'}</span>
@@ -340,7 +343,7 @@ function App() {
           
           <button 
             onClick={getHint}
-            className="flex flex-col items-center justify-center p-3 bg-white rounded-xl shadow-sm border-2 border-slate-100 text-slate-600 hover:border-blue-500 hover:text-blue-500 transition-all active:scale-95"
+            className="flex flex-col items-center justify-center p-3 bg-white/5 backdrop-blur-md rounded-xl shadow-sm border-2 border-white/10 text-white/80 hover:bg-white/20 hover:border-white/30 transition-all active:scale-95"
           >
             <span className="text-xs font-black uppercase mb-1">Hint</span>
             <span className="text-[10px] uppercase font-bold">Help</span>
@@ -353,7 +356,7 @@ function App() {
             <button
               key={num}
               onClick={() => handleNumberInput(num)}
-              className="aspect-square flex items-center justify-center text-xl font-black bg-white border-2 border-slate-100 rounded-lg text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900 active:scale-90 transition-all shadow-sm"
+              className="aspect-square flex items-center justify-center text-xl font-black bg-white/10 backdrop-blur-md border-2 border-white/5 rounded-lg text-white hover:bg-white hover:text-slate-950 active:scale-90 transition-all shadow-sm"
             >
               {num}
             </button>
@@ -361,17 +364,17 @@ function App() {
         </div>
 
         {/* New Game Buttons */}
-        <div className="flex flex-col items-center gap-3 py-4 border-t border-slate-200">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Start New Game</span>
+        <div className="flex flex-col items-center gap-3 py-4 border-t border-white/10">
+          <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Start New Game</span>
           <div className="flex gap-2 w-full">
             {(['easy', 'medium', 'hard'] as const).map((diff) => (
               <button
                 key={diff}
                 onClick={() => startNewGame(diff)}
-                className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-tighter shadow-md active:scale-95 transition-all
-                  ${diff === 'easy' ? 'bg-green-100 text-green-700 hover:bg-green-600 hover:text-white' : 
-                    diff === 'medium' ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-600 hover:text-white' : 
-                    'bg-red-100 text-red-700 hover:bg-red-600 hover:text-white'}`}
+                className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-tighter shadow-lg active:scale-95 transition-all
+                  ${diff === 'easy' ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500 hover:text-white' : 
+                    diff === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500 hover:text-white' : 
+                    'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white'}`}
               >
                 {diff}
               </button>

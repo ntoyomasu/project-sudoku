@@ -1,0 +1,39 @@
+
+/Users/NOB/Projects/01_my-project/project-sudoku/src/App.tsx
+   40:7  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/NOB/Projects/01_my-project/project-sudoku/src/App.tsx:40:7
+  38 |     const saved = localStorage.getItem('sudoku-best-times');
+  39 |     if (saved) {
+> 40 |       setBestTimes(JSON.parse(saved));
+     |       ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  41 |     }
+  42 |   }, []);
+  43 |  react-hooks/set-state-in-effect
+   74:5  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/Users/NOB/Projects/01_my-project/project-sudoku/src/App.tsx:74:5
+  72 |
+  73 |   useEffect(() => {
+> 74 |     startNewGame('medium', true);
+     |     ^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  75 |   }, []); // Only on mount
+  76 |
+  77 |   // Timer logic                                       react-hooks/set-state-in-effect
+   75:6  warning  React Hook useEffect has a missing dependency: 'startNewGame'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-hooks/exhaustive-deps
+  219:6  warning  React Hook useEffect has a missing dependency: 'undo'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-hooks/exhaustive-deps
+
+✖ 4 problems (2 errors, 2 warnings)
+
