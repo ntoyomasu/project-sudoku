@@ -235,11 +235,11 @@ function App() {
     let base = "w-10 h-10 sm:w-14 sm:h-14 flex items-center justify-center text-2xl transition-all duration-150 cursor-pointer relative ";
     
     // Borders
-    if (col < 8) base += (col + 1) % 3 === 0 ? "border-r-2 border-white/20 " : "border-r border-white/10 ";
-    if (row < 8) base += (row + 1) % 3 === 0 ? "border-b-2 border-white/20 " : "border-b border-white/10 ";
+    if (col < 8) base += (col + 1) % 3 === 0 ? "border-r-[2px] border-white/20 " : "border-r-[1px] border-white/10 ";
+    if (row < 8) base += (row + 1) % 3 === 0 ? "border-b-[2px] border-white/20 " : "border-b-[1px] border-white/10 ";
 
     if (isSelected) {
-      base += "bg-blue-500/80 text-white z-10 scale-105 shadow-[0_0_20px_rgba(59,130,246,0.6)] ring-2 ring-white/50 ";
+      base += "bg-blue-600/90 text-white z-20 shadow-[0_0_20px_rgba(37,99,235,0.6)] ring-[2px] ring-white/60 ring-inset ";
     } else if (isSameValue && userBoard[row][col] !== null) {
       base += "bg-blue-400/30 ";
     } else if (isSameRow || isSameCol || isSameBlock) {
@@ -295,7 +295,7 @@ function App() {
       </div>
 
       {/* Grid */}
-      <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl shadow-2xl border-2 border-white/20 mb-6 overflow-hidden transform transition-all duration-300 ring-8 ring-white/5">
+      <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl shadow-2xl border-[2px] border-white/20 mb-6 overflow-hidden transform transition-all duration-300 ring-8 ring-white/5">
         <div className="grid grid-cols-9 bg-transparent">
           {userBoard.map((row, ri) => (
             row.map((cell, ci) => (
