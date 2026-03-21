@@ -32,12 +32,18 @@ function App() {
   const [flashingCells, setFlashingCells] = useState<Set<string>>(new Set());
   const [flashingNumber, setFlashingNumber] = useState<number | null>(null);
 
-  // Advanced Features State
+  const [gameMode, setGameMode] = useState<'classic' | 'time-attack'>('classic');
+  const [isDaily, setIsDaily] = useState(false);
+  const [timeEffect, setTimeEffect] = useState<{ type: 'plus' | 'minus'; value: number } | null>(null);
+
   const [history, setHistory] = useState<Board[]>([]);
   const [memos, setMemos] = useState<number[][][]>(
     Array(9).fill(null).map(() => Array(9).fill(null).map(() => []))
   );
   const [isMemoMode, setIsMemoMode] = useState(false);
+  const [hintsUsed, setHintsUsed] = useState(0);
+  const hintsLimit = 3;
+
   const [bestTimes, setBestTimes] = useState<BestTimes>(() => {
     const saved = localStorage.getItem('sudoku-best-times');
     try {
@@ -47,51 +53,134 @@ function App() {
     }
   });
 
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+
+  // Streaks & Stats
+  const [stats, setStats] = useState(() => {
+    const saved = localStorage.getItem('sudoku-stats');
+    try {
+      return saved ? JSON.parse(saved) : { 
+        gamesPlayed: 0, 
+        gamesWon: 0, 
+        currentStreak: 0, 
+        lastWinDate: null,
+        achievements: [] as string[]
+      };
+    } catch {
+      return { gamesPlayed: 0, gamesWon: 0, currentStreak: 0, lastWinDate: null, achievements: [] };
+    }
+  });
+
   // Initialize game
-  const startNewGame = useCallback((diff: Difficulty = 'medium', force = false) => {
-    if (!force && isGameActive && userBoard.some((row, ri) => row.some((cell, ci) => cell !== initialBoard[ri][ci]))) {
+  const startNewGame = useCallback((diff: Difficulty = 'medium', mode: 'classic' | 'time-attack' = 'classic', daily = false, force = false) => {
+    // Only confirm if the game has progressed (timer > 0 AND boards differ)
+    const hasProgressed = userBoard.some((row, ri) => row.some((cell, ci) => cell !== initialBoard[ri][ci]));
+    if (!force && isGameActive && timer > 0 && hasProgressed) {
       if (!confirm('Start a new game? Your current progress will be lost.')) return;
     }
 
     setTimeout(() => {
       setDifficulty(diff);
+      setGameMode(mode);
+      setIsDaily(daily);
       setIsLoading(true);
       try {
-        const { initial, solution } = generateSudoku(diff);
+        const seed = daily ? new Date().toISOString().split('T')[0] : undefined;
+        const { initial, solution } = generateSudoku(diff, seed);
+        
         setInitialBoard(initial.map(row => [...row]));
         setUserBoard(initial.map(row => [...row]));
         setSolution(solution);
         setMistakes(0);
-        setTimer(0);
+        
+        // Initial timer
+        if (mode === 'time-attack') {
+          const initialTime = diff === 'easy' ? 120 : diff === 'medium' ? 180 : 300;
+          setTimer(initialTime);
+        } else {
+          setTimer(0);
+        }
+        
         setIsGameActive(true);
         setSelectedCell(null);
         setHistory([]);
         setMemos(Array(9).fill(null).map(() => Array(9).fill(null).map(() => [])));
+        setHintsUsed(0);
         setIsLoading(false);
       } catch (error) {
         console.error('Error generating game:', error);
         setIsLoading(false);
       }
     }, 100);
-  }, [isGameActive, userBoard, initialBoard]);
+  }, [isGameActive, userBoard, initialBoard, timer]);
 
   useEffect(() => {
     if (!initialized.current) {
-      startNewGame('medium', true);
+      const savedGame = localStorage.getItem('sudoku-current-game');
+      if (savedGame) {
+        try {
+          const game = JSON.parse(savedGame);
+          setInitialBoard(game.initialBoard);
+          setUserBoard(game.userBoard);
+          setSolution(game.solution);
+          setMistakes(game.mistakes);
+          setTimer(game.timer);
+          setDifficulty(game.difficulty);
+          setHistory(game.history || []);
+          setMemos(game.memos || Array(9).fill(null).map(() => Array(9).fill(null).map(() => [])));
+          setHintsUsed(game.hintsUsed || 0);
+          setIsGameActive(true);
+          setIsLoading(false);
+          initialized.current = true;
+          return;
+        } catch (e) {
+          console.error("Failed to load saved game", e);
+        }
+      }
+      startNewGame('medium', 'classic', false, true);
       initialized.current = true;
     }
-  }, [startNewGame]); // Only on mount
+  }, [startNewGame]);
+
+  // Auto-save effect
+  useEffect(() => {
+    if (isGameActive && !isLoading) {
+      const gameState = {
+        initialBoard,
+        userBoard,
+        solution,
+        mistakes,
+        timer,
+        difficulty,
+        history,
+        memos,
+        hintsUsed
+      };
+      localStorage.setItem('sudoku-current-game', JSON.stringify(gameState));
+    }
+  }, [isGameActive, isLoading, initialBoard, userBoard, solution, mistakes, timer, difficulty, history, memos, hintsUsed]);
 
   // Timer logic
   useEffect(() => {
     let interval: number;
     if (isGameActive) {
       interval = setInterval(() => {
-        setTimer(prev => prev + 1);
+        if (gameMode === 'time-attack') {
+          setTimer(prev => {
+            if (prev <= 1) {
+              setIsGameActive(false);
+              alert('Time is up! Game Over.');
+              return 0;
+            }
+            return prev - 1;
+          });
+        } else {
+          setTimer(prev => prev + 1);
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isGameActive]);
+  }, [isGameActive, gameMode]);
 
   const formatTime = (seconds: number | null) => {
     if (seconds === null) return '--:--';
@@ -163,24 +252,69 @@ function App() {
           setTimeout(() => setFlashingNumber(null), 600);
         }
 
+        // Time Attack Bonus
+        if (gameMode === 'time-attack') {
+          setTimer(prev => prev + 10);
+          setTimeEffect({ type: 'plus', value: 10 });
+          setTimeout(() => setTimeEffect(null), 1000);
+        }
+
         // Check win condition
         const isComplete = newBoard.every((r, ri) => r.every((c, ci) => c === solution[ri][ci]));
         if (isComplete) {
           setIsGameActive(false);
+          
           const currentBest = bestTimes[difficulty];
-          if (currentBest === null || timer < currentBest) {
-            const newBest = { ...bestTimes, [difficulty]: timer };
-            setBestTimes(newBest);
-            localStorage.setItem('sudoku-best-times', JSON.stringify(newBest));
-            alert(`New Record! You solved the ${difficulty} Sudoku in ${formatTime(timer)}!`);
+          // Stats for classic mode or time attack? usually classic.
+          if (gameMode === 'classic') {
+              if (currentBest === null || timer < currentBest) {
+                const newBest = { ...bestTimes, [difficulty]: timer };
+                setBestTimes(newBest);
+                localStorage.setItem('sudoku-best-times', JSON.stringify(newBest));
+                alert(`New Record! You solved the ${difficulty} Sudoku in ${formatTime(timer)}!`);
+              } else {
+                alert(`Congratulations! You solved the Sudoku in ${formatTime(timer)}!`);
+              }
           } else {
-            alert(`Congratulations! You solved the Sudoku in ${formatTime(timer)}!`);
+              alert(`Congratulations! You completed the Time Attack with ${formatTime(timer)} remaining!`);
           }
+
+          // Update overall stats & achievements
+          const now = new Date();
+          const today = now.toISOString().split('T')[0];
+          const isNoMistake = mistakes === 0;
+          const isSpeedy = (difficulty === 'easy' && timer < 180) || (difficulty === 'medium' && timer < 300) || (difficulty === 'hard' && timer < 600);
+          
+          const newAchievements = [...(stats.achievements || [])];
+          if (isNoMistake && !newAchievements.includes('Perfect Game')) newAchievements.push('Perfect Game');
+          if (isSpeedy && !newAchievements.includes('Speed Demon')) newAchievements.push('Speed Demon');
+          if (difficulty === 'hard' && !newAchievements.includes('Sudoku Master')) newAchievements.push('Sudoku Master');
+          if (isDaily && !newAchievements.includes('Daily Hero')) newAchievements.push('Daily Hero');
+
+          const newStats = {
+            ...stats,
+            gamesPlayed: stats.gamesPlayed + 1,
+            gamesWon: stats.gamesWon + 1,
+            lastWinDate: today,
+            currentStreak: stats.lastWinDate === today ? stats.currentStreak : 
+                           (stats.lastWinDate === new Date(now.setDate(now.getDate() - 1)).toISOString().split('T')[0] ? stats.currentStreak + 1 : 1),
+            achievements: newAchievements
+          };
+          setStats(newStats);
+          localStorage.setItem('sudoku-stats', JSON.stringify(newStats));
         }
       } else {
-        // --- Feature 1: Shake cell on wrong input ---
+        // --- Feature 1: Shake cell on wrong input & Haptic feedback ---
         setShakingCell({ row, col });
-        setTimeout(() => setShakingCell(null), 300);
+        if ('vibrate' in navigator) navigator.vibrate(200);
+        setTimeout(() => setShakingCell(null), 350);
+
+        // Time Attack Penalty
+        if (gameMode === 'time-attack') {
+          setTimer(prev => Math.max(0, prev - 30));
+          setTimeEffect({ type: 'minus', value: 30 });
+          setTimeout(() => setTimeEffect(null), 1000);
+        }
 
         setMistakes(prev => prev + 1);
         if (mistakes + 1 >= 3) {
@@ -189,7 +323,7 @@ function App() {
         }
       }
     }
-  }, [selectedCell, userBoard, initialBoard, solution, isGameActive, mistakes, isMemoMode, memos, bestTimes, difficulty, timer]);
+  }, [selectedCell, userBoard, initialBoard, solution, isGameActive, mistakes, isMemoMode, memos, bestTimes, difficulty, timer, stats, gameMode, isDaily]);
 
   const undo = useCallback(() => {
     if (history.length === 0 || !isGameActive) return;
@@ -199,7 +333,7 @@ function App() {
   }, [history, isGameActive]);
 
   const getHint = useCallback(() => {
-    if (!isGameActive) return;
+    if (!isGameActive || hintsUsed >= hintsLimit) return;
     
     // Find all empty cells
     const emptyCells: SelectedCell[] = [];
@@ -222,9 +356,10 @@ function App() {
     const num = solution[row][col];
     
     setUserBoard(userBoard.map((r, ri) => ri === row ? r.map((c, ci) => ci === col ? num : c) : [...r]));
+    setHintsUsed(prev => prev + 1);
     // Clear memos for target
     setMemos(prev => prev.map((r, ri) => r.map((c, ci) => (ri === row && ci === col) ? [] : c)));
-  }, [isGameActive, userBoard, selectedCell, solution]);
+  }, [isGameActive, userBoard, selectedCell, solution, hintsUsed, hintsLimit]);
 
   // Keyboard support
   useEffect(() => {
@@ -311,14 +446,33 @@ function App() {
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-800 flex flex-col items-center pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] px-4 font-sans select-none overflow-x-hidden text-white">
       {/* Header */}
       <div className="w-full max-w-md flex flex-col gap-4 mb-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-black text-white tracking-tighter uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Sudoku</h1>
-          <div className="flex gap-2 items-center">
+        <div className="flex justify-between items-center text-white/40">
+            <button 
+              onClick={() => setIsStatsOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all active:scale-95"
+            >
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/60">Statistics</span>
+            </button>
+            
+            <button 
+              onClick={() => startNewGame('medium', 'classic', true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all active:scale-95 ${isDaily ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-white/60'}`}
+            >
+              <span className="text-[10px] font-black uppercase tracking-widest">Daily</span>
+            </button>
+
+            <h1 className="text-3xl font-black text-white tracking-tighter uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Sudoku</h1>
+           <div className="flex gap-2 items-center">
              <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-lg shadow-sm border border-white/20 text-xs font-bold text-white/70 uppercase">
                 Best: <span className="text-white font-black">{formatTime(bestTimes[difficulty])}</span>
              </div>
-             <div className="bg-white text-slate-900 px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.4)] text-sm font-mono font-bold w-16 text-center">
+             <div className={`px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.4)] text-sm font-mono font-bold w-20 text-center relative transition-all duration-300 ${gameMode === 'time-attack' && timer < 30 ? 'bg-red-500 text-white animate-pulse scale-110 shadow-[0_0_20px_rgba(239,68,68,0.6)]' : 'bg-white text-slate-900'}`}>
                 {formatTime(timer)}
+                {timeEffect && (
+                  <div className={`absolute -bottom-8 left-1/2 -translate-x-1/2 font-black text-xs animate-bounce pointer-events-none whitespace-nowrap drop-shadow-md ${timeEffect.type === 'plus' ? 'text-green-400' : 'text-red-400'}`}>
+                    {timeEffect.type === 'plus' ? '+' : '-'}{timeEffect.value}s
+                  </div>
+                )}
              </div>
           </div>
         </div>
@@ -327,6 +481,12 @@ function App() {
            <div className="flex items-center gap-2 ml-2">
              <div className={`w-2.5 h-2.5 rounded-full shadow-[0_0_8px_currentColor] ${difficulty === 'easy' ? 'bg-green-400 text-green-400' : difficulty === 'medium' ? 'bg-yellow-400 text-yellow-400' : 'bg-red-400 text-red-400'}`}></div>
              <span className="text-xs font-black uppercase text-white/80 tracking-widest">{difficulty}</span>
+             {gameMode === 'time-attack' && (
+               <span className="text-[8px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 font-black uppercase ml-1">Time Attack</span>
+             )}
+             {isDaily && (
+               <span className="text-[8px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 font-black uppercase ml-1">Daily</span>
+             )}
            </div>
            <div className="flex gap-2">
               <span className="text-[10px] font-bold text-white/40 uppercase tracking-tighter">Mistakes</span>
@@ -388,34 +548,54 @@ function App() {
           
           <button 
             onClick={getHint}
-            className="flex flex-col items-center justify-center p-3 bg-white/5 backdrop-blur-md rounded-xl shadow-sm border-2 border-white/10 text-white/80 hover:bg-white/20 hover:border-white/30 transition-all active:scale-95"
+            disabled={hintsUsed >= hintsLimit || !isGameActive}
+            className="flex flex-col items-center justify-center p-3 bg-white/5 backdrop-blur-md rounded-xl shadow-sm border-2 border-white/10 text-white/80 hover:bg-white/20 hover:border-white/30 disabled:opacity-20 transition-all active:scale-95"
           >
-            <span className="text-xs font-black uppercase mb-1">Hint</span>
-            <span className="text-[10px] uppercase font-bold">Help</span>
+            <span className="text-xs font-black uppercase mb-1 text-yellow-400">Hint</span>
+            <span className="text-[10px] uppercase font-bold text-white/60">{hintsLimit - hintsUsed} Left</span>
           </button>
         </div>
 
-        {/* Number Pad */}
         <div className="grid grid-cols-9 gap-1.5">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-            <button
-              key={num}
-              onClick={() => handleNumberInput(num)}
-              className="aspect-square flex items-center justify-center text-xl font-black bg-white/10 backdrop-blur-md border-2 border-white/5 rounded-lg text-white hover:bg-white hover:text-slate-950 active:scale-90 transition-all shadow-sm"
-            >
-              {num}
-            </button>
-          ))}
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => {
+            const isCompleted = userBoard.flat().filter(c => c === num).length === 9;
+            return (
+              <button
+                key={num}
+                onClick={() => handleNumberInput(num)}
+                className={`aspect-square flex items-center justify-center text-xl font-black rounded-lg transition-all shadow-sm
+                  ${isCompleted ? 'number-complete' : 'bg-white/10 backdrop-blur-md border-2 border-white/5 text-white hover:bg-white hover:text-slate-950 active:scale-90'}`}
+              >
+                {num}
+              </button>
+            );
+          })}
         </div>
 
         {/* New Game Buttons */}
         <div className="flex flex-col items-center gap-3 py-4 border-t border-white/10">
-          <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Start New Game</span>
+          <div className="flex justify-between items-center w-full mb-1">
+            <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Start New Game</span>
+            <div className="flex gap-1 bg-white/5 rounded-lg p-1 border border-white/10">
+                <button 
+                  onClick={() => setGameMode('classic')}
+                  className={`text-[8px] font-black uppercase px-2 py-1 rounded ${gameMode === 'classic' ? 'bg-white text-slate-900' : 'text-white/40 hover:text-white'}`}
+                >
+                  Classic
+                </button>
+                <button 
+                  onClick={() => setGameMode('time-attack')}
+                  className={`text-[8px] font-black uppercase px-2 py-1 rounded ${gameMode === 'time-attack' ? 'bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'text-white/40 hover:text-red-400'}`}
+                >
+                  Time Attack
+                </button>
+            </div>
+          </div>
           <div className="flex gap-2 w-full">
             {(['easy', 'medium', 'hard'] as const).map((diff) => (
               <button
                 key={diff}
-                onClick={() => startNewGame(diff)}
+                onClick={() => startNewGame(diff, gameMode)}
                 className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-tighter shadow-lg active:scale-95 transition-all
                   ${diff === 'easy' ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500 hover:text-white' : 
                     diff === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500 hover:text-white' : 
@@ -427,6 +607,74 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Stats Modal */}
+      {isStatsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md text-white">
+          <div className="w-full max-w-sm bg-slate-900 border-2 border-white/20 rounded-2xl shadow-2xl p-6 relative overflow-hidden">
+            <div className="absolute -top-24 -right-24 w-48 h-48 bg-blue-500/20 rounded-full blur-3xl"></div>
+            
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-black text-white tracking-tight uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Statistics</h2>
+                <button 
+                  onClick={() => setIsStatsOpen(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-white/5 p-4 rounded-xl border border-white/10 text-center">
+                  <div className="text-[10px] font-bold text-white/40 uppercase mb-1">Won</div>
+                  <div className="text-2xl font-black text-white">{stats.gamesWon}</div>
+                </div>
+                <div className="bg-white/5 p-4 rounded-xl border border-white/10 text-center">
+                  <div className="text-[10px] font-bold text-white/40 uppercase mb-1">Streak</div>
+                  <div className="text-2xl font-black text-blue-400">{stats.currentStreak}</div>
+                </div>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <div className="text-[10px] font-black text-white/30 uppercase tracking-widest pl-1 mb-2">Best Times</div>
+                  <div className="space-y-2">
+                    {(['easy', 'medium', 'hard'] as const).map(diff => (
+                      <div key={diff} className="flex justify-between items-center bg-white/5 px-3 py-2 rounded-lg border border-white/10">
+                        <span className="text-[10px] font-bold text-white/60 uppercase">{diff}</span>
+                        <span className="text-xs font-mono font-bold text-white">{formatTime(bestTimes[diff])}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-[10px] font-black text-white/30 uppercase tracking-widest pl-1 mb-2">Badges</div>
+                  <div className="flex flex-wrap gap-2">
+                    {stats.achievements && stats.achievements.length > 0 ? (
+                      stats.achievements.map((badge: string) => (
+                        <div key={badge} className="px-2 py-1 bg-blue-500/20 border border-blue-500/40 rounded-md text-[9px] font-black text-blue-300 uppercase">
+                          {badge}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-[10px] font-bold text-white/20 italic pl-1">No badges yet...</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setIsStatsOpen(false)}
+                className="w-full py-3 bg-white text-slate-900 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

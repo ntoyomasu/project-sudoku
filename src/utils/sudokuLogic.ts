@@ -77,16 +77,31 @@ export const countSolutions = (board: Board, count: { value: number }): void => 
 };
 
 /**
+ * Simple seeded random number generator.
+ */
+const createSeededRandom = (seed: string) => {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(31, h) + seed.charCodeAt(i) | 0;
+  }
+  return () => {
+    h = Math.imul(48271, h) | 0;
+    return (h >>> 0) / 2147483647;
+  };
+};
+
+/**
  * Generates a full valid Sudoku board.
  */
-export const generateFullBoard = (): Board => {
+export const generateFullBoard = (seed?: string): Board => {
   const board: Board = Array(9).fill(null).map(() => Array(9).fill(null));
+  const random = seed ? createSeededRandom(seed) : Math.random;
   
   const fill = (b: Board): boolean => {
     for (let row = 0; row < 9; row++) {
       for (let col = 0; col < 9; col++) {
         if (b[row][col] === null) {
-          const nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5);
+          const nums = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => random() - 0.5);
           for (const num of nums) {
             if (isValid(b, row, col, num)) {
               b[row][col] = num;
@@ -109,20 +124,24 @@ export const generateFullBoard = (): Board => {
  * Generates a Sudoku problem by removing numbers from a full board.
  * Ensures a unique solution exists.
  */
-export const generateSudoku = (difficulty: 'easy' | 'medium' | 'hard' = 'medium'): { initial: Board, solution: Board } => {
-  console.log(`Generating Sudoku for difficulty: ${difficulty}...`);
-  const solution = generateFullBoard();
+export const generateSudoku = (
+  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
+  seed?: string
+): { initial: Board, solution: Board } => {
+  console.log(`Generating Sudoku for difficulty: ${difficulty}${seed ? ' with seed' : ''}...`);
+  const solution = generateFullBoard(seed);
   const initial = solution.map(row => [...row]);
+  const random = seed ? createSeededRandom(seed + "-remove") : Math.random;
   
   let attempts = difficulty === 'easy' ? 30 : difficulty === 'medium' ? 45 : 55;
   let removedCount = 0;
   
   while (attempts > 0) {
-    let row = Math.floor(Math.random() * 9);
-    let col = Math.floor(Math.random() * 9);
+    let row = Math.floor(random() * 9);
+    let col = Math.floor(random() * 9);
     while (initial[row][col] === null) {
-      row = Math.floor(Math.random() * 9);
-      col = Math.floor(Math.random() * 9);
+      row = Math.floor(random() * 9);
+      col = Math.floor(random() * 9);
     }
 
     const backup = initial[row][col];
