@@ -26,6 +26,12 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   
+  // UI Effect State
+  const [shakingCell, setShakingCell] = useState<{ row: number; col: number } | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
+  const [flashingCells, setFlashingCells] = useState<Set<string>>(new Set());
+  const [flashingNumber, setFlashingNumber] = useState<number | null>(null);
+
   // Advanced Features State
   const [history, setHistory] = useState<Board[]>([]);
   const [memos, setMemos] = useState<number[][][]>(
@@ -102,6 +108,8 @@ function App() {
     if (!selectedCell || !isGameActive) return;
     const { row, col } = selectedCell;
 
+    setSelectedNumber(num);
+
     if (initialBoard[row][col] !== null) return;
 
     if (isMemoMode) {
@@ -110,7 +118,7 @@ function App() {
       const newMemos = [...memos];
       newMemos[row] = [...newMemos[row]];
       const cellMemos = [...newMemos[row][col]];
-      
+
       if (cellMemos.includes(num)) {
         newMemos[row][col] = cellMemos.filter(n => n !== num);
       } else {
@@ -131,10 +139,29 @@ function App() {
         // Clear memos for this cell and related cells
         const newMemos = memos.map((r, ri) => r.map((c, ci) => {
             if (ri === row && ci === col) return [];
-            // Optional: Auto-clear related memos if you want that feature
             return c;
         }));
         setMemos(newMemos);
+
+        // --- Feature 3: Flash completed row / col / block ---
+        const completedCells = new Set<string>();
+        if ([0,1,2,3,4,5,6,7,8].every(c => newBoard[row][c] !== null))
+          [0,1,2,3,4,5,6,7,8].forEach(c => completedCells.add(`${row}-${c}`));
+        if ([0,1,2,3,4,5,6,7,8].every(r => newBoard[r][col] !== null))
+          [0,1,2,3,4,5,6,7,8].forEach(r => completedCells.add(`${r}-${col}`));
+        const br = Math.floor(row / 3) * 3, bc = Math.floor(col / 3) * 3;
+        if ([0,1,2].every(dr => [0,1,2].every(dc => newBoard[br+dr][bc+dc] !== null)))
+          [0,1,2].forEach(dr => [0,1,2].forEach(dc => completedCells.add(`${br+dr}-${bc+dc}`)));
+        if (completedCells.size > 0) {
+          setFlashingCells(completedCells);
+          setTimeout(() => setFlashingCells(new Set()), 600);
+        }
+
+        // --- Feature 4: Flash all cells of a number when all 9 are placed ---
+        if (newBoard.flat().filter(c => c === num).length === 9) {
+          setFlashingNumber(num);
+          setTimeout(() => setFlashingNumber(null), 600);
+        }
 
         // Check win condition
         const isComplete = newBoard.every((r, ri) => r.every((c, ci) => c === solution[ri][ci]));
@@ -151,6 +178,10 @@ function App() {
           }
         }
       } else {
+        // --- Feature 1: Shake cell on wrong input ---
+        setShakingCell({ row, col });
+        setTimeout(() => setShakingCell(null), 300);
+
         setMistakes(prev => prev + 1);
         if (mistakes + 1 >= 3) {
           setIsGameActive(false);
@@ -224,16 +255,23 @@ function App() {
     const isSelected = selectedCell?.row === row && selectedCell?.col === col;
     const isSameRow = selectedCell?.row === row;
     const isSameCol = selectedCell?.col === col;
-    const isSameBlock = 
-      selectedCell && 
-      Math.floor(selectedCell.row / 3) === Math.floor(row / 3) && 
+    const isSameBlock =
+      selectedCell &&
+      Math.floor(selectedCell.row / 3) === Math.floor(row / 3) &&
       Math.floor(selectedCell.col / 3) === Math.floor(col / 3);
-    
+
     const isInitial = initialBoard[row] && initialBoard[row][col] !== null;
     const isSameValue = selectedCell && userBoard[row][col] !== null && userBoard[row][col] === userBoard[selectedCell.row][selectedCell.col];
 
+    // Feature 1: shake on wrong input
+    const isShaking = shakingCell?.row === row && shakingCell?.col === col;
+    // Feature 3 & 4: gold flash on completion
+    const isFlashing =
+      flashingCells.has(`${row}-${col}`) ||
+      (flashingNumber !== null && userBoard[row][col] === flashingNumber);
+
     let base = "w-10 h-10 sm:w-14 sm:h-14 flex items-center justify-center text-2xl transition-all duration-150 cursor-pointer relative ";
-    
+
     // Borders
     if (col < 8) base += (col + 1) % 3 === 0 ? "border-r-[2px] border-white/20 " : "border-r-[1px] border-white/10 ";
     if (row < 8) base += (row + 1) % 3 === 0 ? "border-b-[2px] border-white/20 " : "border-b-[1px] border-white/10 ";
@@ -251,6 +289,9 @@ function App() {
     if (!isSelected) {
       base += isInitial ? "text-white font-black " : "text-cyan-400 font-bold ";
     }
+
+    if (isShaking) base += "cell-shake ";
+    if (isFlashing) base += "cell-flash ";
 
     return base;
   };
@@ -309,8 +350,12 @@ function App() {
                 ) : (
                   <div className="grid grid-cols-3 grid-rows-3 w-full h-full p-0.5 pointer-events-none">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
-                      <div key={n} className="flex items-center justify-center text-[8px] sm:text-[10px] leading-none text-white/30 font-bold">
-                        {memos[ri][ci].includes(n) ? n : ''}
+                      <div key={n} className="flex items-center justify-center text-[8px] sm:text-[10px] leading-none font-bold">
+                        {memos[ri][ci].includes(n) ? (
+                          <span className={isMemoMode && selectedNumber === n ? 'text-blue-400' : 'text-white/30'}>
+                            {n}
+                          </span>
+                        ) : null}
                       </div>
                     ))}
                   </div>
