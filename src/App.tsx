@@ -352,15 +352,23 @@ function App() {
 
         {/* Number Pad */}
         <div className="grid grid-cols-9 gap-1.5">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-            <button
-              key={num}
-              onClick={() => handleNumberInput(num)}
-              className="aspect-square flex items-center justify-center text-xl font-black bg-white/10 backdrop-blur-md border-2 border-white/5 rounded-lg text-white hover:bg-white hover:text-slate-950 active:scale-90 transition-all shadow-sm"
-            >
-              {num}
-            </button>
-          ))}
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => {
+            const count = userBoard.flat().filter(c => c === num).length;
+            const isCompleted = count >= 9;
+            return (
+              <button
+                key={num}
+                onClick={() => !isCompleted && handleNumberInput(num)}
+                className={`aspect-square flex items-center justify-center text-xl font-black border-2 rounded-lg transition-all shadow-sm
+                  ${isCompleted
+                    ? 'bg-white/5 border-white/5 text-white/20 opacity-30 cursor-not-allowed'
+                    : 'bg-white/10 backdrop-blur-md border-white/5 text-white hover:bg-white hover:text-slate-950 active:scale-90'
+                  }`}
+              >
+                {num}
+              </button>
+            );
+          })}
         </div>
 
         {/* New Game Buttons */}
