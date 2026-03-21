@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git -C /Users/NOB/Projects/01_my-project/project-sudoku merge claude/confident-montalcini --no-ff -m \"Merge branch ''claude/confident-montalcini'' into main\")",
+      "Bash(git -C /Users/NOB/Projects/01_my-project/project-sudoku push origin main)",
+      "Bash(git -C /Users/NOB/Projects/01_my-project/project-sudoku log --oneline -10)",
+      "Bash(gh run:*)",
+      "Read(//Users/NOB/Projects/01_my-project/project-sudoku/**)",
+      "Bash(npm run:*)",
+      "Bash(export PATH=\"/opt/homebrew/bin:$PATH\")"
+    ]
+  }
+}
