@@ -10,9 +10,17 @@ interface BestTimes {
   easy: number | null;
   medium: number | null;
   hard: number | null;
+  'super-hard': number | null;
 }
 
-type Difficulty = 'easy' | 'medium' | 'hard';
+export type Difficulty = 'easy' | 'medium' | 'hard' | 'super-hard';
+export type Theme = 'default' | 'ocean' | 'sunset' | 'cyber';
+
+const LockIcon = ({ className = "w-3 h-3 inline-block" }: { className?: string }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+    <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+  </svg>
+);
 
 function App() {
   const [initialBoard, setInitialBoard] = useState<Board>([]);
@@ -46,28 +54,43 @@ function App() {
 
   const [bestTimes, setBestTimes] = useState<BestTimes>(() => {
     const saved = localStorage.getItem('sudoku-best-times');
+    const defaultTimes = { easy: null, medium: null, hard: null, 'super-hard': null };
     try {
-      return saved ? JSON.parse(saved) : { easy: null, medium: null, hard: null };
+      return saved ? { ...defaultTimes, ...JSON.parse(saved) } : defaultTimes;
     } catch {
-      return { easy: null, medium: null, hard: null };
+      return defaultTimes;
     }
   });
 
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem('sudoku-theme');
+    return (saved as Theme) || 'default';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sudoku-theme', theme);
+  }, [theme]);
+
   const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
   // Streaks & Stats
   const [stats, setStats] = useState(() => {
     const saved = localStorage.getItem('sudoku-stats');
-    try {
-      return saved ? JSON.parse(saved) : { 
+    const defaultStats = { 
         gamesPlayed: 0, 
         gamesWon: 0, 
         currentStreak: 0, 
-        lastWinDate: null,
-        achievements: [] as string[]
-      };
+        lastWinDate: null as string | null,
+        achievements: [] as string[],
+        unlockedThemes: ['default'] as Theme[],
+        superHardUnlocked: false,
+        winsPerDifficulty: { easy: 0, medium: 0, hard: 0, 'super-hard': 0 }
+    };
+    try {
+      return saved ? { ...defaultStats, ...JSON.parse(saved) } : defaultStats;
     } catch {
-      return { gamesPlayed: 0, gamesWon: 0, currentStreak: 0, lastWinDate: null, achievements: [] };
+      return defaultStats;
     }
   });
 
@@ -116,28 +139,30 @@ function App() {
 
   useEffect(() => {
     if (!initialized.current) {
-      const savedGame = localStorage.getItem('sudoku-current-game');
-      if (savedGame) {
-        try {
-          const game = JSON.parse(savedGame);
-          setInitialBoard(game.initialBoard);
-          setUserBoard(game.userBoard);
-          setSolution(game.solution);
-          setMistakes(game.mistakes);
-          setTimer(game.timer);
-          setDifficulty(game.difficulty);
-          setHistory(game.history || []);
-          setMemos(game.memos || Array(9).fill(null).map(() => Array(9).fill(null).map(() => [])));
-          setHintsUsed(game.hintsUsed || 0);
-          setIsGameActive(true);
-          setIsLoading(false);
-          initialized.current = true;
-          return;
-        } catch (e) {
-          console.error("Failed to load saved game", e);
+      // Defer initialization slightly to avoid synchronous setState inside useEffect warning
+      setTimeout(() => {
+        const savedGame = localStorage.getItem('sudoku-current-game');
+        if (savedGame) {
+          try {
+            const game = JSON.parse(savedGame);
+            setInitialBoard(game.initialBoard);
+            setUserBoard(game.userBoard);
+            setSolution(game.solution);
+            setMistakes(game.mistakes);
+            setTimer(game.timer);
+            setDifficulty(game.difficulty);
+            setHistory(game.history || []);
+            setMemos(game.memos || Array(9).fill(null).map(() => Array(9).fill(null).map(() => [])));
+            setHintsUsed(game.hintsUsed || 0);
+            setIsGameActive(true);
+            setIsLoading(false);
+            return;
+          } catch (e) {
+            console.error("Failed to load saved game", e);
+          }
         }
-      }
-      startNewGame('medium', 'classic', false, true);
+        startNewGame('medium', 'classic', false, true);
+      }, 0);
       initialized.current = true;
     }
   }, [startNewGame]);
@@ -291,14 +316,39 @@ function App() {
           if (difficulty === 'hard' && !newAchievements.includes('Sudoku Master')) newAchievements.push('Sudoku Master');
           if (isDaily && !newAchievements.includes('Daily Hero')) newAchievements.push('Daily Hero');
 
+          const newWinsPerDifficulty = { ...stats.winsPerDifficulty, [difficulty]: (stats.winsPerDifficulty[difficulty] || 0) + 1 };
+          const totalWins = stats.gamesWon + 1;
+          const newUnlockedThemes = [...(stats.unlockedThemes || ['default'])];
+          let superHardUnlocked = stats.superHardUnlocked || false;
+
+          let unlockMessage = '';
+          if (newWinsPerDifficulty.hard >= 3 && !superHardUnlocked) {
+            superHardUnlocked = true;
+            newAchievements.push('Super Hard Unlocked');
+            unlockMessage += '\nUNLOCKED: SUPER HARD Difficulty! (Won 3 Hard games)';
+          }
+          if (totalWins >= 3 && !newUnlockedThemes.includes('ocean')) { newUnlockedThemes.push('ocean'); unlockMessage += '\nUNLOCKED: Ocean Theme! (Won 3 games)'; }
+          if (totalWins >= 7 && !newUnlockedThemes.includes('sunset')) { newUnlockedThemes.push('sunset'); unlockMessage += '\nUNLOCKED: Sunset Theme! (Won 7 games)'; }
+
+          const newCurrentStreak = stats.lastWinDate === today ? stats.currentStreak : 
+                           (stats.lastWinDate === new Date(now.setDate(now.getDate() - 1)).toISOString().split('T')[0] ? stats.currentStreak + 1 : 1);
+
+          if (newCurrentStreak >= 3 && !newUnlockedThemes.includes('cyber')) { newUnlockedThemes.push('cyber'); unlockMessage += '\nUNLOCKED: Cyber Theme! (3-day streak)'; }
+
+          if (unlockMessage) {
+            setTimeout(() => alert('Congratulations!' + unlockMessage), 500);
+          }
+
           const newStats = {
             ...stats,
             gamesPlayed: stats.gamesPlayed + 1,
-            gamesWon: stats.gamesWon + 1,
+            gamesWon: totalWins,
             lastWinDate: today,
-            currentStreak: stats.lastWinDate === today ? stats.currentStreak : 
-                           (stats.lastWinDate === new Date(now.setDate(now.getDate() - 1)).toISOString().split('T')[0] ? stats.currentStreak + 1 : 1),
-            achievements: newAchievements
+            currentStreak: newCurrentStreak,
+            achievements: newAchievements,
+            unlockedThemes: newUnlockedThemes,
+            superHardUnlocked,
+            winsPerDifficulty: newWinsPerDifficulty
           };
           setStats(newStats);
           localStorage.setItem('sudoku-stats', JSON.stringify(newStats));
@@ -442,39 +492,73 @@ function App() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-900 to-slate-800 flex flex-col items-center pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))] px-4 font-sans select-none overflow-x-hidden text-white">
-      {/* Header */}
-      <div className="w-full max-w-md flex flex-col gap-4 mb-6">
-        <div className="flex justify-between items-center text-white/40">
-            <button 
-              onClick={() => setIsStatsOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all active:scale-95"
-            >
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/60">Statistics</span>
-            </button>
-            
-            <button 
-              onClick={() => startNewGame('medium', 'classic', true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all active:scale-95 ${isDaily ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-white/60'}`}
-            >
-              <span className="text-[10px] font-black uppercase tracking-widest">Daily</span>
-            </button>
+  const themeClasses = {
+    default: "from-slate-950 via-slate-900 to-slate-800",
+    ocean: "from-blue-950 via-blue-900 to-sky-950",
+    sunset: "from-orange-950 via-red-950 to-rose-950",
+    cyber: "from-fuchsia-950 via-purple-950 to-indigo-950"
+  };
 
-            <h1 className="text-3xl font-black text-white tracking-tighter uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Sudoku</h1>
-           <div className="flex gap-2 items-center">
-             <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-lg shadow-sm border border-white/20 text-xs font-bold text-white/70 uppercase">
-                Best: <span className="text-white font-black">{formatTime(bestTimes[difficulty])}</span>
-             </div>
-             <div className={`px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.4)] text-sm font-mono font-bold w-20 text-center relative transition-all duration-300 ${gameMode === 'time-attack' && timer < 30 ? 'bg-red-500 text-white animate-pulse scale-110 shadow-[0_0_20px_rgba(239,68,68,0.6)]' : 'bg-white text-slate-900'}`}>
-                {formatTime(timer)}
-                {timeEffect && (
-                  <div className={`absolute -bottom-8 left-1/2 -translate-x-1/2 font-black text-xs animate-bounce pointer-events-none whitespace-nowrap drop-shadow-md ${timeEffect.type === 'plus' ? 'text-green-400' : 'text-red-400'}`}>
-                    {timeEffect.type === 'plus' ? '+' : '-'}{timeEffect.value}s
-                  </div>
-                )}
-             </div>
-          </div>
+  return (
+    <div className={`min-h-screen bg-linear-to-br ${themeClasses[theme]} flex flex-col items-center pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-4 font-sans select-none overflow-x-hidden text-white transition-colors duration-1000`}>
+      {/* Header */}
+      <div className="w-full max-w-md flex flex-col gap-3 mb-6 z-10">
+        <div className="flex justify-between items-end gap-2">
+            <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] shrink-0 leading-none">Sudoku</h1>
+            
+            <div className="flex gap-1.5 items-center flex-wrap justify-end">
+              <button 
+                onClick={() => {
+                  if (confirm('Unlock all features for testing?')) {
+                    setStats({
+                      ...stats,
+                      gamesWon: 10,
+                      currentStreak: 5,
+                      superHardUnlocked: true,
+                      unlockedThemes: ['default', 'ocean', 'sunset', 'cyber']
+                    });
+                    alert('All features unlocked!');
+                  }
+                }}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-orange-500/20 border border-orange-500/50 hover:bg-orange-500/40 transition-all active:scale-95"
+              >
+                <span className="text-[9px] font-black uppercase tracking-widest text-orange-400">Unlock</span>
+              </button>
+
+              <button 
+                onClick={() => setIsThemeModalOpen(true)}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all active:scale-95"
+              >
+                <span className="text-[9px] font-black uppercase tracking-widest text-white/50">Theme</span>
+              </button>
+
+              <button 
+                onClick={() => setIsStatsOpen(true)}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all active:scale-95"
+              >
+                <span className="text-[9px] font-black uppercase tracking-widest text-white/50">Stats</span>
+              </button>
+              
+              <button 
+                onClick={() => startNewGame('medium', 'classic', true)}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all active:scale-95 ${isDaily ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' : 'bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-white/50'}`}
+              >
+                <span className="text-[9px] font-black uppercase tracking-widest">Daily</span>
+              </button>
+
+              <div className="bg-white/10 backdrop-blur-md px-2 py-1.5 rounded-lg border border-white/20 text-[9px] font-black uppercase tracking-widest text-white/90 whitespace-nowrap min-w-[75px] text-center shadow-sm">
+                 <span className="text-white/40 mr-1 italic">Best</span> {formatTime(bestTimes[difficulty])}
+              </div>
+
+              <div className={`px-2 py-1.5 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.3)] text-[10px] font-mono font-bold w-18 text-center relative transition-all duration-300 ${gameMode === 'time-attack' && timer < 30 ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-white text-slate-900'}`}>
+                 {formatTime(timer)}
+                 {timeEffect && (
+                   <div className={`absolute -bottom-8 left-1/2 -translate-x-1/2 font-black text-xs animate-bounce pointer-events-none whitespace-nowrap drop-shadow-md ${timeEffect.type === 'plus' ? 'text-green-400' : 'text-red-400'}`}>
+                     {timeEffect.type === 'plus' ? '+' : '-'}{timeEffect.value}s
+                   </div>
+                 )}
+              </div>
+            </div>
         </div>
         
         <div className="flex justify-between items-center bg-white/10 backdrop-blur-md p-2 rounded-xl shadow-sm border border-white/20">
@@ -496,7 +580,7 @@ function App() {
       </div>
 
       {/* Grid */}
-      <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl shadow-2xl border-[2px] border-white/20 mb-6 overflow-hidden transform transition-all duration-300 ring-8 ring-white/5">
+      <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl shadow-2xl border-2 border-white/20 mb-4 overflow-hidden transform transition-all duration-300 ring-8 ring-white/5">
         <div className="grid grid-cols-9 bg-transparent">
           {userBoard.map((row, ri) => (
             row.map((cell, ci) => (
@@ -527,7 +611,7 @@ function App() {
       </div>
 
       {/* Controls */}
-      <div className="w-full max-w-md flex flex-col gap-6">
+      <div className="w-full max-w-md flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
           <button 
             onClick={undo}
@@ -573,7 +657,7 @@ function App() {
         </div>
 
         {/* New Game Buttons */}
-        <div className="flex flex-col items-center gap-3 py-4 border-t border-white/10">
+        <div className="flex flex-col items-center gap-2 pt-2 pb-1 border-t border-white/10">
           <div className="flex justify-between items-center w-full mb-1">
             <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">Start New Game</span>
             <div className="flex gap-1 bg-white/5 rounded-lg p-1 border border-white/10">
@@ -591,19 +675,33 @@ function App() {
                 </button>
             </div>
           </div>
-          <div className="flex gap-2 w-full">
-            {(['easy', 'medium', 'hard'] as const).map((diff) => (
-              <button
-                key={diff}
-                onClick={() => startNewGame(diff, gameMode)}
-                className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-tighter shadow-lg active:scale-95 transition-all
-                  ${diff === 'easy' ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500 hover:text-white' : 
-                    diff === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500 hover:text-white' : 
-                    'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white'}`}
-              >
-                {diff}
-              </button>
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+            {(['easy', 'medium', 'hard', 'super-hard'] as const).map((diff) => {
+              const isSuper = diff === 'super-hard';
+              const isLocked = isSuper && !stats.superHardUnlocked;
+              
+              return (
+                <button
+                  key={diff}
+                  onClick={() => {
+                    if (isLocked) {
+                      alert('[LOCKED] SUPER HARD is locked!\nUnlock requirement: Win 3 games on Hard difficulty.');
+                      return;
+                    }
+                    startNewGame(diff, gameMode);
+                  }}
+                  className={`relative py-2 rounded-xl font-black text-xs uppercase tracking-tighter shadow-lg transition-all
+                    ${isLocked ? 'bg-slate-800/50 text-slate-500 border border-slate-700 pointer-events-auto' :
+                      diff === 'easy' ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500 hover:text-white active:scale-95' : 
+                      diff === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500 hover:text-white active:scale-95' : 
+                      diff === 'hard' ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white active:scale-95' :
+                      'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500 hover:text-white active:scale-95'}`}
+                >
+                  {isLocked && <div className="absolute -top-1.5 right-1 text-[8px]"><LockIcon className="w-3 h-3 text-slate-500" /></div>}
+                  {diff.replace('-', ' ')}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -640,10 +738,14 @@ function App() {
                 <div>
                   <div className="text-[10px] font-black text-white/30 uppercase tracking-widest pl-1 mb-2">Best Times</div>
                   <div className="space-y-2">
-                    {(['easy', 'medium', 'hard'] as const).map(diff => (
-                      <div key={diff} className="flex justify-between items-center bg-white/5 px-3 py-2 rounded-lg border border-white/10">
-                        <span className="text-[10px] font-bold text-white/60 uppercase">{diff}</span>
-                        <span className="text-xs font-mono font-bold text-white">{formatTime(bestTimes[diff])}</span>
+                    {(['easy', 'medium', 'hard', 'super-hard'] as const).map(diff => (
+                      <div key={diff} className={`flex justify-between items-center px-3 py-2 rounded-lg border border-white/10 ${diff === 'super-hard' && !stats.superHardUnlocked ? 'bg-slate-900/50 opacity-50' : 'bg-white/5'}`}>
+                        <span className="text-[10px] font-bold text-white/60 uppercase flex items-center gap-1">
+                          {diff.replace('-', ' ')} {diff === 'super-hard' && !stats.superHardUnlocked && <LockIcon />}
+                        </span>
+                        <span className="text-xs font-mono font-bold text-white">
+                          {diff === 'super-hard' && !stats.superHardUnlocked ? 'LOCKED' : formatTime(bestTimes[diff])}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -675,8 +777,57 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Theme Modal */}
+      {isThemeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md text-white">
+          <div className="w-full max-w-sm bg-slate-900 border-2 border-white/20 rounded-2xl shadow-2xl p-6 relative overflow-hidden">
+            <div className={`absolute -top-24 -right-24 w-48 h-48 rounded-full blur-3xl ${theme === 'cyber' ? 'bg-fuchsia-500/20' : theme === 'sunset' ? 'bg-orange-500/20' : theme === 'ocean' ? 'bg-sky-500/20' : 'bg-slate-500/20'}`}></div>
+            
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-black text-white tracking-tight uppercase italic drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Themes</h2>
+                <button 
+                  onClick={() => setIsThemeModalOpen(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {(['default', 'ocean', 'sunset', 'cyber'] as Theme[]).map(t => {
+                  const isUnlocked = stats.unlockedThemes.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => {
+                        if (isUnlocked) setTheme(t);
+                        else alert(`[LOCKED] Theme locked!\n\nUnlock conditions:\nOcean: Win 3 games total\nSunset: Win 7 games total\nCyber: Achieve a 3-day winning streak`);
+                      }}
+                      className={`p-4 rounded-xl border-2 transition-all text-left relative overflow-hidden ${theme === t ? 'border-white bg-white/10 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'border-white/10 bg-white/5 hover:bg-white/10'} ${!isUnlocked && 'opacity-60 cursor-not-allowed'}`}
+                    >
+                      <div className={`absolute inset-0 opacity-20 bg-linear-to-br ${themeClasses[t]}`}></div>
+                      {!isUnlocked && <div className="absolute top-2 right-2 text-xs"><LockIcon className="w-4 h-4 text-white/50" /></div>}
+                      <div className="relative z-10 font-black uppercase text-[10px] tracking-widest text-white">{t}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button 
+                onClick={() => setIsThemeModalOpen(false)}
+                className="w-full py-3 bg-white text-slate-900 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.2)] active:scale-95"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+
 }
 
 export default App;

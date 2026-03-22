@@ -125,7 +125,7 @@ export const generateFullBoard = (seed?: string): Board => {
  * Ensures a unique solution exists.
  */
 export const generateSudoku = (
-  difficulty: 'easy' | 'medium' | 'hard' = 'medium',
+  difficulty: 'easy' | 'medium' | 'hard' | 'super-hard' = 'medium',
   seed?: string
 ): { initial: Board, solution: Board } => {
   console.log(`Generating Sudoku for difficulty: ${difficulty}${seed ? ' with seed' : ''}...`);
@@ -133,7 +133,7 @@ export const generateSudoku = (
   const initial = solution.map(row => [...row]);
   const random = seed ? createSeededRandom(seed + "-remove") : Math.random;
   
-  let attempts = difficulty === 'easy' ? 30 : difficulty === 'medium' ? 45 : 55;
+  let attempts = difficulty === 'easy' ? 30 : difficulty === 'medium' ? 45 : difficulty === 'hard' ? 55 : 75;
   let removedCount = 0;
   
   while (attempts > 0) {

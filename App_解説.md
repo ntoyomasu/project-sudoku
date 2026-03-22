@@ -87,6 +87,10 @@ const [difficulty, setDifficulty] = useState<Difficulty>('medium');
 const [hintsUsed, setHintsUsed] = useState(0); 
 const hintsLimit = 3;
 const [isStatsOpen, setIsStatsOpen] = useState(false);
+const [gameMode, setGameMode] = useState<'classic' | 'time-attack'>('classic');
+const [isDaily, setIsDaily] = useState(false);
+const [timeEffect, setTimeEffect] = useState<{ type: 'plus' | 'minus', value: number } | null>(null);
+const [isSolved, setIsSolved] = useState(false);
 ```
 
 **解説：**
@@ -105,10 +109,15 @@ const [isStatsOpen, setIsStatsOpen] = useState(false);
 | `solution` | 正解の盤面（判定に使う、画面には表示しない） |
 | `selectedCell` | 今どのマスを選んでいるか（行・列） |
 | `mistakes` | ミスした回数（0〜3） |
-| `timer` | 経過秒数 |
+| `timer` | 経過秒数（タイムアタックでは残り秒数） |
 | `isGameActive` | ゲームが進行中かどうか（true/false） |
 | `isLoading` | 問題生成中で読み込み中かどうか |
-| `difficulty` | 現在の難易度 |
+| `difficulty` | 現在の難易度（easy/medium/hard + 隠し難易度'super-hard'） |
+| `gameMode` | 「通常」モードか「タイムアタック」モードか |
+| `theme` | 現在の画面テーマ（'default', 'ocean', 'sunset', 'cyber'） |
+| `isDaily` | 今日のデイリーチャレンジに挑戦中かどうか |
+| `timeEffect` | タイムアタックでの加点（+10s）や減点（-30s）のフワッとした演出 |
+| `isSolved` | 数字がすべて埋まってクリアした瞬間の状態（キラリと光る演出に使用） |
 | `hintsUsed` | 今回のゲームでヒントを使った回数 |
 | `isStatsOpen` | 統計画面（モーダル）が開いているかどうか |
 | `stats` | 全体での勝利数や実績、ストリーク（連勝）の記録 |
@@ -149,10 +158,26 @@ const [bestTimes, setBestTimes] = useState<BestTimes>(() => {
 ### ブロック 5：新しいゲームを始める処理
 
 ```tsx
-const startNewGame = useCallback((diff: Difficulty = 'medium', force = false) => {
-  if (!force && isGameActive && userBoard.some(...)) {
-    if (!confirm('Start a new game? Your current progress will be lost.')) return;
+const startNewGame = useCallback((
+  diff: Difficulty = 'medium', 
+  mode: 'classic' | 'time-attack' = 'classic',
+  daily = false,
+  seed?: number
+) => {
+  // ... 確認処理 ...
+  setGameMode(mode);
+  setIsDaily(daily);
+  
+  // タイムアタックの初期時間設定 (Easy: 2分, Medium: 3分, Hard: 5分)
+  if (mode === 'time-attack') {
+    setTimer(diff === 'easy' ? 120 : diff === 'medium' ? 180 : 300);
+  } else {
+    setTimer(0);
   }
+  
+  const { initial, solution } = generateHistory(diff, seed);
+  // ... 各種リセット処理 ...
+}, [...]);
 
   // 中断データの削除（新しいゲームを始めるため）
   localStorage.removeItem('sudoku-current-game');
@@ -231,13 +256,22 @@ useEffect(() => {
 ```tsx
 useEffect(() => {
   let interval: number;
-  if (isGameActive) {
+  if (isGameActive && !isSolved) {
     interval = setInterval(() => {
-      setTimer(prev => prev + 1);
+      setTimer(prev => {
+        if (gameMode === 'time-attack') {
+          if (prev <= 1) {
+            handleGameOver(); // 時間切れ
+            return 0;
+          }
+          return prev - 1; // タイムアタックはカウントダウン
+        }
+        return prev + 1; // 通常はカウントアップ
+      });
     }, 1000);
   }
   return () => clearInterval(interval);
-}, [isGameActive]);
+}, [isGameActive, gameMode, isSolved]);
 ```
 
 **解説：**
@@ -480,12 +514,29 @@ return (
 
 `return (...)` の中が「実際に画面に表示される部分」です。HTMLに近い記法（JSX）で書かれています。
 
-- **ヘッダー** → タイトル・タイマー・ベストタイム・ミス数を表示
-- **盤面** → `userBoard`（81マス）を順番にループして全マスを描画。マスが空ならメモ数字を小さく表示
+- **ヘッダー** → 「Sudoku」ロゴを左に、各ボタン（Stats, Daily, Best, Timer）を右にまとめて配置。見た目もグラスモーフィズムで美しく。
+- **盤面** → `userBoard`（81マス）を順番にループして全マスを描画。マスが空ならメモ数字を小さく表示。クリア時は全体がキラリと光ります。
 - **コントロールボタン** → Undo（元に戻す）・Notes（メモ）・Hint（ヒント）
-- **数字パッド** → 1〜9のボタン（クリックで入力）。9個埋まった数字は自動的に薄くなります。
-- **難易度ボタン** → Easy・Medium・Hardで新ゲーム開始
-- **統計画面（隠し要素）** → ヘッダーの「Statistics」ボタンで、過去の功績を確認できます。
+- **数字パッド** → 1〜9のボタン（クリックで入力）。完了した数字は薄くなります。
+- **難易度・モード選択** → Easy・Medium・Hard・SUPER HARD（条件で解放解）のほか、「Classic / Time Attack」のモード切り替えもここで行います。
+- **統計画面＆テーマ** → 全体でのクリア数や実績バッジを確認したり、解放（アンロック）したテーマ（OceanやCyberなど）を変更できます。
+
+---
+
+### ブロック 16.5：アンロック（解放）システム
+
+これらはプレイヤーのモチベーションを高めるための機能群です。
+
+**SUPER HARD 難易度**
+通常の `Hard` モードを3回クリアすると解放されます。この難易度では、数独として破綻しない（答えが1つになる）ギリギリの数まで初手で表示される数字を削っています。未解放時はメニューに「🔒」が表示されます。
+
+**カスタムテーマ（Theme）**
+UIの見た目を自由に変更できる機能です。ゲームの実績に応じて新しいテーマが解放されます：
+- **Ocean（ブルー系）**：累計3ゲームクリアで解放。
+- **Sunset（赤・オレンジ系）**：累計7ゲームクリアで解放。
+- **Cyber（紫・ピンク系）**：3日間連続クリア（ストリーク）で解放。
+
+これらのデータも `localStorage` に保存されるため、遊べば遊ぶほど機能が増えていく長期的な楽しさを提供します。
 
 ---
 
