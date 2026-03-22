@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">sudoku</string>
-    <string name="title_activity_main">sudoku</string>
+    <string name="app_name">SUDOKU</string>
+    <string name="title_activity_main">SUDOKU</string>
     <string name="package_name">com.ntoyomasu.sudoku</string>
     <string name="custom_url_scheme">com.ntoyomasu.sudoku</string>
 </resources>
